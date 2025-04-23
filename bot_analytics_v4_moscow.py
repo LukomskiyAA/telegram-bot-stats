@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import pytz
 import matplotlib.pyplot as plt
+import re
+from io import BytesIO
 
 from telegram import Update
 from telegram.ext import (
@@ -13,6 +15,8 @@ from telegram.ext import (
     MessageHandler, filters
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from types import SimpleNamespace
+import nest_asyncio
 
 # Настройка логирования
 logging.basicConfig(
@@ -22,6 +26,10 @@ logging.basicConfig(
 
 TOKEN = os.getenv("BOT_TOKEN") or "your_token_here"
 STATS_FILE = "stats.json"
+
+# Экранирование MarkdownV2
+def escape_markdown(text):
+    return re.sub(r'([\\_*[\]()~`>#+\-=|{}.!])', r'\\\1', str(text))
 
 # Загрузка статистики
 def load_stats():
@@ -59,6 +67,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.message.from_user
         increment_message_count(chat_id, user.id, user.username or user.full_name)
 
+# Команда /start
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "👋 Привет! Я бот для сбора статистики чатов.\n"
+        "Набери /motohelp, чтобы увидеть список всех команд."
+    )
+    await update.message.reply_text(escape_markdown(text), parse_mode="MarkdownV2")
+
 # Команда /stat
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
@@ -79,10 +95,10 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if uid in day:
                 username = day[uid]["username"]
                 break
-        user_tag = f"@{username}" if username else f"ID:{uid}"
+        user_tag = f"@{escape_markdown(username)}" if username else f"ID\\:{uid}"
         lines.append(f"{user_tag} — {count} сообщений")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 # Команда /top
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -109,10 +125,10 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if uid in day:
                 username = day[uid]["username"]
                 break
-        user_tag = f"@{username}" if username else f"ID:{uid}"
+        user_tag = f"@{escape_markdown(username)}" if username else f"ID\\:{uid}"
         lines.append(f"{i}. {user_tag} — {count} сообщений")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 # Команда /graph
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,39 +158,43 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plt.ylabel("Сообщения")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("graph.png")
+
+    buffer = BytesIO()
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
     plt.close()
 
-    with open("graph.png", "rb") as f:
-        await update.message.reply_photo(f)
+    await update.message.reply_photo(photo=buffer)
 
 # Команда /motohelp
 async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📋 *Список доступных команд:*\n"
+        "/start — Приветственное сообщение\n"
         "/stat — Общая статистика сообщений\n"
         "/top — Топ 10 активных участников за неделю\n"
         "/graph — График активности за неделю\n"
         "/motohelp — Список доступных команд"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(escape_markdown(text), parse_mode="MarkdownV2")
 
-# Планировщик еженедельной отправки
+# Планировщик
 async def send_weekly_report(app):
     for chat_id in stats.keys():
-        dummy_update = type("obj", (object,), {"effective_chat": type("chat", (), {"id": int(chat_id)})})()
-        await top_command(dummy_update, None)
-        await graph_command(dummy_update, None)
+        update = SimpleNamespace(effective_chat=SimpleNamespace(id=int(chat_id)))
+        await top_command(update, None)
+        await graph_command(update, None)
 
-# Основной запуск
+# Запуск
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
+    app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("stat", stat_command))
     app.add_handler(CommandHandler("top", top_command))
     app.add_handler(CommandHandler("graph", graph_command))
     app.add_handler(CommandHandler("motohelp", motohelp_command))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
 
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(lambda: asyncio.create_task(send_weekly_report(app)), "cron", day_of_week="sun", hour=23, minute=59)
@@ -184,6 +204,5 @@ async def main():
     await app.run_polling()
 
 if __name__ == "__main__":
-    import nest_asyncio
     nest_asyncio.apply()
     asyncio.get_event_loop().run_until_complete(main())
