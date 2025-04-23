@@ -15,6 +15,7 @@ from telegram.ext import (
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Настройка логирования
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
@@ -23,21 +24,25 @@ logging.basicConfig(
 TOKEN = os.getenv("BOT_TOKEN") or "your_token_here"
 STATS_FILE = "stats.json"
 
+# Экранирование MarkdownV2
 def escape_markdown(text):
-    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', str(text))
+    return re.sub(r'([_*\[\]()~`>#+\-=|{}.!\\])', r'\\\1', str(text))
 
+# Загрузка статистики
 def load_stats():
     if os.path.exists(STATS_FILE):
         with open(STATS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
+# Сохранение статистики
 def save_stats(data):
     with open(STATS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 stats = load_stats()
 
+# Добавление сообщения в статистику
 def increment_message_count(chat_id, user_id, username):
     today = datetime.now(pytz.timezone("Europe/Moscow")).date().isoformat()
     chat_id = str(chat_id)
@@ -52,12 +57,14 @@ def increment_message_count(chat_id, user_id, username):
     stats[chat_id][today][user_id]["count"] += 1
     save_stats(stats)
 
+# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         chat_id = update.message.chat_id
         user = update.message.from_user
         increment_message_count(chat_id, user.id, user.username or user.full_name)
 
+# Команда /stat
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in stats:
@@ -77,11 +84,12 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if uid in day:
                 username = day[uid]["username"]
                 break
-        user_tag = f"@{escape_markdown(username)}" if username else f"ID\:{uid}"
+        user_tag = f"@{escape_markdown(username)}" if username else f"ID\\:{uid}"
         lines.append(f"{user_tag} — {count} сообщений")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    await update.message.reply_text(escape_markdown("\n".join(lines)), parse_mode="MarkdownV2")
 
+# Команда /top
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in stats:
@@ -106,11 +114,12 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if uid in day:
                 username = day[uid]["username"]
                 break
-        user_tag = f"@{escape_markdown(username)}" if username else f"ID\:{uid}"
+        user_tag = f"@{escape_markdown(username)}" if username else f"ID\\:{uid}"
         lines.append(f"{i}. {user_tag} — {count} сообщений")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
+    await update.message.reply_text(escape_markdown("\n".join(lines)), parse_mode="MarkdownV2")
 
+# Команда /graph
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     if chat_id not in stats:
@@ -144,6 +153,7 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open("graph.png", "rb") as f:
         await update.message.reply_photo(f)
 
+# Команда /motohelp
 async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📋 *Список доступных команд:*\n"
@@ -154,12 +164,14 @@ async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(escape_markdown(text), parse_mode="MarkdownV2")
 
+# Планировщик еженедельной отправки
 async def send_weekly_report(app):
     for chat_id in stats.keys():
         dummy_update = type("obj", (object,), {"effective_chat": type("chat", (), {"id": int(chat_id)})})()
         await top_command(dummy_update, None)
         await graph_command(dummy_update, None)
 
+# Основной запуск
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -179,9 +191,4 @@ async def main():
 if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()
-
-    loop = asyncio.get_event_loop()
-    if loop.is_running():
-        loop.create_task(main())
-    else:
-        loop.run_until_complete(main())
+    asyncio.get_event_loop().run_until_complete(main())
