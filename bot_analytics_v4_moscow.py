@@ -8,8 +8,10 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 
 from telegram import Update
-from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
-                          MessageHandler, filters, CallbackContext)
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    MessageHandler, filters
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # Настройка логирования
@@ -48,7 +50,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.message.from_user
         increment_message_count(user.id, user.username or user.full_name)
 
-# Команды
+# Команда /stat
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_users = defaultdict(int)
     for day in stats.values():
@@ -68,6 +70,7 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+# Команда /top
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(pytz.timezone("Europe/Moscow"))
     week_ago = now - timedelta(days=7)
@@ -91,6 +94,7 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+# Команда /graph
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now(pytz.timezone("Europe/Moscow"))
     week_ago = now - timedelta(days=6)
@@ -119,10 +123,10 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open("graph.png", "rb") as f:
         await update.message.reply_photo(f)
 
+# Команда /motohelp
 async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📋 *Список доступных команд:*
-"
+        "📋 *Список доступных команд:*\n"
         "/stat — Общая статистика сообщений\n"
         "/top — Топ 10 активных участников за неделю\n"
         "/graph — График активности за неделю\n"
@@ -130,12 +134,14 @@ async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# Планировщик
+# Авторассылка
 async def send_weekly_report(application):
-    await top_command(await application.bot.get_chat(CHAT_ID), ContextTypes.DEFAULT_TYPE())
-    await graph_command(await application.bot.get_chat(CHAT_ID), ContextTypes.DEFAULT_TYPE())
+    context = ContextTypes.DEFAULT_TYPE()
+    bot = application.bot
+    await top_command(await bot.get_chat(CHAT_ID), context)
+    await graph_command(await bot.get_chat(CHAT_ID), context)
 
-# Запуск
+# Инициализация
 stats = load_stats()
 
 async def main():
