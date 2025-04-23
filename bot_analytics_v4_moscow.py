@@ -1,147 +1,158 @@
-import os
 import json
+import os
 import asyncio
-import pytz
 import logging
-import datetime
+from datetime import datetime, timedelta
+import pytz
+from collections import defaultdict
 import matplotlib.pyplot as plt
 
 from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-)
+from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
+                          MessageHandler, filters, CallbackContext)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from collections import defaultdict
 
-# Включаем логирование
+# Настройка логирования
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
 
-# Загружаем токен из переменной окружения
-TOKEN = os.getenv("BOT_TOKEN")
-
-# Путь к файлу с статистикой
+TOKEN = os.getenv("BOT_TOKEN") or "8164071818:AAFCBZTKBXcCbxLdmN1uyjRT26X_w4abjVY"
+CHAT_ID = int(os.getenv("CHAT_ID") or -1002585901809)
 STATS_FILE = "stats.json"
 
-# Чат ID для авторассылки
-CHAT_ID = -1002585901809
-
-# Загрузка статистики
+# Загрузка и сохранение статистики
 def load_stats():
     if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, 'r', encoding='utf-8') as f:
+        with open(STATS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"total": defaultdict(int), "weekly": defaultdict(int)}
+    return {}
 
-# Сохранение статистики
-def save_stats(data):
-    with open(STATS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+def save_stats(stats):
+    with open(STATS_FILE, "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=2)
 
-# Обработка входящих сообщений
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not user or not update.message:
-        return
-    name = user.username or f"{user.first_name} {user.last_name or ''}".strip()
-    stats = context.bot_data["stats"]
-    stats["total"][name] = stats["total"].get(name, 0) + 1
-    stats["weekly"][name] = stats["weekly"].get(name, 0) + 1
+# Обработка сообщений
+def increment_message_count(user_id, username):
+    today = datetime.now(pytz.timezone("Europe/Moscow")).date().isoformat()
+    if today not in stats:
+        stats[today] = {}
+    if str(user_id) not in stats[today]:
+        stats[today][str(user_id)] = {"username": username, "count": 0}
+    stats[today][str(user_id)]["count"] += 1
     save_stats(stats)
 
-# Команда /stat
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message:
+        user = update.message.from_user
+        increment_message_count(user.id, user.username or user.full_name)
+
+# Команды
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = context.bot_data["stats"]["total"]
-    result = "*📊 Общая статистика сообщений:*\n\n"
-    for name, count in sorted(stats.items(), key=lambda x: x[1], reverse=True):
-        result += f"▪️ {name} — {count} сообщений\n"
-    await update.message.reply_text(result, parse_mode="Markdown")
+    all_users = defaultdict(int)
+    for day in stats.values():
+        for uid, data in day.items():
+            all_users[uid] += data["count"]
 
-# Команда /top
+    sorted_users = sorted(all_users.items(), key=lambda x: x[1], reverse=True)
+    lines = ["🧾 *Общая статистика сообщений:*"]
+    for uid, count in sorted_users:
+        username = None
+        for day in stats.values():
+            if uid in day:
+                username = day[uid]["username"]
+                break
+        user_tag = f"@{username}" if username else f"ID:{uid}"
+        lines.append(f"{user_tag} — {count} сообщений")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = context.bot_data["stats"]["weekly"]
-    top_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
-    result = "*🏆 Топ 10 самых активных за неделю:*\n"
-    for i, (name, count) in enumerate(top_users, 1):
-        result += f"{i}. {name} — {count} сообщений\n"
-    await update.message.reply_text(result, parse_mode="Markdown")
+    now = datetime.now(pytz.timezone("Europe/Moscow"))
+    week_ago = now - timedelta(days=7)
+    week_users = defaultdict(int)
+    for date_str, users in stats.items():
+        date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        if date >= week_ago.date():
+            for uid, data in users.items():
+                week_users[uid] += data["count"]
 
-# Команда /graph
+    sorted_users = sorted(week_users.items(), key=lambda x: x[1], reverse=True)[:10]
+    lines = ["🏆 *Топ 10 самых активных за неделю:*"]
+    for i, (uid, count) in enumerate(sorted_users, 1):
+        username = None
+        for day in stats.values():
+            if uid in day:
+                username = day[uid]["username"]
+                break
+        user_tag = f"@{username}" if username else f"ID:{uid}"
+        lines.append(f"{i}. {user_tag} — {count} сообщений")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stats = context.bot_data["stats"]["weekly"]
-    names, counts = zip(*sorted(stats.items(), key=lambda x: x[1], reverse=True))
+    now = datetime.now(pytz.timezone("Europe/Moscow"))
+    week_ago = now - timedelta(days=6)
+    user_daily = defaultdict(lambda: [0]*7)
+
+    for i in range(7):
+        day = (week_ago + timedelta(days=i)).date().isoformat()
+        if day in stats:
+            for uid, data in stats[day].items():
+                user_daily[data["username"]][i] = data["count"]
+
     plt.figure(figsize=(10, 6))
-    plt.barh(names[::-1], counts[::-1])
-    plt.xlabel("Сообщений")
-    plt.title("Топ активных за неделю")
+    for username, counts in user_daily.items():
+        plt.plot(range(7), counts, label=username)
+
+    days = [(week_ago + timedelta(days=i)).strftime("%a") for i in range(7)]
+    plt.xticks(range(7), days)
+    plt.title("Активность за последние 7 дней")
+    plt.xlabel("Дни")
+    plt.ylabel("Сообщения")
+    plt.legend()
     plt.tight_layout()
-    plt.savefig("weekly_graph.png")
+    plt.savefig("graph.png")
     plt.close()
-    await update.message.reply_photo(photo=open("weekly_graph.png", "rb"))
 
-# Команда /getid
-async def getid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    await update.message.reply_text(f"🆔 Chat ID: `{chat_id}`", parse_mode="Markdown")
+    with open("graph.png", "rb") as f:
+        await update.message.reply_photo(f)
 
-# Команда /help
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "*Список доступных команд:*\n"
+        "📋 *Список доступных команд:*
+"
         "/stat — Общая статистика сообщений\n"
-        "/top — Топ 10 активных за неделю\n"
+        "/top — Топ 10 активных участников за неделю\n"
         "/graph — График активности за неделю\n"
-        "/getid — Получить ID текущего чата\n"
-        "/help — Список всех команд"
+        "/motohelp — Список доступных команд"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
-# Автоматическая еженедельная рассылка /top и /graph
-async def weekly_report(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = CHAT_ID
-    stats = context.bot_data["stats"]["weekly"]
+# Планировщик
+async def send_weekly_report(application):
+    await top_command(await application.bot.get_chat(CHAT_ID), ContextTypes.DEFAULT_TYPE())
+    await graph_command(await application.bot.get_chat(CHAT_ID), ContextTypes.DEFAULT_TYPE())
 
-    if stats:
-        top_users = sorted(stats.items(), key=lambda x: x[1], reverse=True)[:10]
-        result = "*🏆 Топ 10 самых активных за неделю:*\n"
-        for i, (name, count) in enumerate(top_users, 1):
-            result += f"{i}. {name} — {count} сообщений\n"
-        await context.bot.send_message(chat_id=chat_id, text=result, parse_mode="Markdown")
+# Запуск
+stats = load_stats()
 
-        names, counts = zip(*sorted(stats.items(), key=lambda x: x[1], reverse=True))
-        plt.figure(figsize=(10, 6))
-        plt.barh(names[::-1], counts[::-1])
-        plt.xlabel("Сообщений")
-        plt.title("Топ активных за неделю")
-        plt.tight_layout()
-        plt.savefig("weekly_graph.png")
-        plt.close()
-
-        await context.bot.send_photo(chat_id=chat_id, photo=open("weekly_graph.png", "rb"))
-
-    context.bot_data["stats"]["weekly"] = {}
-    save_stats(context.bot_data["stats"])
-
-# Главная функция
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
-    app.bot_data["stats"] = load_stats()
 
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     app.add_handler(CommandHandler("stat", stat_command))
     app.add_handler(CommandHandler("top", top_command))
     app.add_handler(CommandHandler("graph", graph_command))
-    app.add_handler(CommandHandler("getid", getid_command))
-    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("motohelp", motohelp_command))
 
-    scheduler = AsyncIOScheduler(timezone=pytz.timezone("Europe/Moscow"))
-    scheduler.add_job(weekly_report, "cron", day_of_week="sun", hour=23, minute=59, args=[app.bot])
+    scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+    scheduler.add_job(lambda: asyncio.create_task(send_weekly_report(app)), "cron", day_of_week="sun", hour=23, minute=59)
     scheduler.start()
 
-    print("✅ Бот запущен...")
+    print("Бот запущен...")
     await app.run_polling()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())
