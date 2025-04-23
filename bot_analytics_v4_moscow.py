@@ -3,74 +3,99 @@ import os
 import asyncio
 import logging
 from datetime import datetime, timedelta
-import pytz
 from collections import defaultdict
+import pytz
 import matplotlib.pyplot as plt
 
 from telegram import Update
-from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
-                          MessageHandler, filters)
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    MessageHandler, filters
+)
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+# Настройка логирования
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 
-TOKEN = os.getenv("BOT_TOKEN") or "8164071818:AAFCBZTKBXcCbxLdmN1uyjRT26X_w4abjVY"
+TOKEN = os.getenv("BOT_TOKEN") or "your_token_here"
 STATS_FILE = "stats.json"
 
+# Загрузка статистики
 def load_stats():
     if os.path.exists(STATS_FILE):
         with open(STATS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-def save_stats(stats):
+# Сохранение статистики
+def save_stats(data):
     with open(STATS_FILE, "w", encoding="utf-8") as f:
-        json.dump(stats, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 stats = load_stats()
 
-def increment_message_count(user_id, username):
+# Добавление сообщения в статистику
+def increment_message_count(chat_id, user_id, username):
     today = datetime.now(pytz.timezone("Europe/Moscow")).date().isoformat()
-    if today not in stats:
-        stats[today] = {}
-    if str(user_id) not in stats[today]:
-        stats[today][str(user_id)] = {"username": username, "count": 0}
-    stats[today][str(user_id)]["count"] += 1
+    chat_id = str(chat_id)
+    user_id = str(user_id)
+
+    if chat_id not in stats:
+        stats[chat_id] = {}
+    if today not in stats[chat_id]:
+        stats[chat_id][today] = {}
+    if user_id not in stats[chat_id][today]:
+        stats[chat_id][today][user_id] = {"username": username, "count": 0}
+    stats[chat_id][today][user_id]["count"] += 1
     save_stats(stats)
 
+# Обработка сообщений
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
+        chat_id = update.message.chat_id
         user = update.message.from_user
-        increment_message_count(user.id, user.username or user.full_name)
+        increment_message_count(chat_id, user.id, user.username or user.full_name)
 
+# Команда /stat
 async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if chat_id not in stats:
+        await update.message.reply_text("Нет данных для этого чата.")
+        return
+
     all_users = defaultdict(int)
-    for day_data in stats.values():
-        for uid, data in day_data.items():
+    for day in stats[chat_id].values():
+        for uid, data in day.items():
             all_users[uid] += data["count"]
 
     sorted_users = sorted(all_users.items(), key=lambda x: x[1], reverse=True)
     lines = ["🧾 *Общая статистика сообщений:*"]
     for uid, count in sorted_users:
         username = None
-        for day in stats.values():
+        for day in stats[chat_id].values():
             if uid in day:
                 username = day[uid]["username"]
                 break
         user_tag = f"@{username}" if username else f"ID:{uid}"
         lines.append(f"{user_tag} — {count} сообщений")
 
-    await update.message.reply_text("
-".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+# Команда /top
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if chat_id not in stats:
+        await update.message.reply_text("Нет данных для этого чата.")
+        return
+
     now = datetime.now(pytz.timezone("Europe/Moscow"))
     week_ago = now - timedelta(days=7)
     week_users = defaultdict(int)
-    for date_str, users in stats.items():
+
+    for date_str, users in stats[chat_id].items():
         date = datetime.strptime(date_str, "%Y-%m-%d").date()
         if date >= week_ago.date():
             for uid, data in users.items():
@@ -80,25 +105,30 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = ["🏆 *Топ 10 самых активных за неделю:*"]
     for i, (uid, count) in enumerate(sorted_users, 1):
         username = None
-        for day in stats.values():
+        for day in stats[chat_id].values():
             if uid in day:
                 username = day[uid]["username"]
                 break
         user_tag = f"@{username}" if username else f"ID:{uid}"
         lines.append(f"{i}. {user_tag} — {count} сообщений")
 
-    await update.message.reply_text("
-".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+# Команда /graph
 async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if chat_id not in stats:
+        await update.message.reply_text("Нет данных для этого чата.")
+        return
+
     now = datetime.now(pytz.timezone("Europe/Moscow"))
     week_ago = now - timedelta(days=6)
     user_daily = defaultdict(lambda: [0]*7)
 
     for i in range(7):
         day = (week_ago + timedelta(days=i)).date().isoformat()
-        if day in stats:
-            for uid, data in stats[day].items():
+        if day in stats[chat_id]:
+            for uid, data in stats[chat_id][day].items():
                 user_daily[data["username"]][i] = data["count"]
 
     plt.figure(figsize=(10, 6))
@@ -118,30 +148,25 @@ async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open("graph.png", "rb") as f:
         await update.message.reply_photo(f)
 
+# Команда /motohelp
 async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📋 *Список доступных команд:*
-"
-        "/stat — Общая статистика сообщений
-"
-        "/top — Топ 10 активных участников за неделю
-"
-        "/graph — График активности за неделю
-"
+        "📋 *Список доступных команд:*\n"
+        "/stat — Общая статистика сообщений\n"
+        "/top — Топ 10 активных участников за неделю\n"
+        "/graph — График активности за неделю\n"
         "/motohelp — Список доступных команд"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
+# Планировщик еженедельной отправки
 async def send_weekly_report(app):
-    chat_ids = app.chat_data.keys()
-    for chat_id in chat_ids:
-        context = ContextTypes.DEFAULT_TYPE()
-        try:
-            await top_command(Update.de_json({"message": {"chat": {"id": chat_id}}}, app.bot), context)
-            await graph_command(Update.de_json({"message": {"chat": {"id": chat_id}}}, app.bot), context)
-        except Exception as e:
-            logging.error(f"Ошибка при рассылке в чат {chat_id}: {e}")
+    for chat_id in stats.keys():
+        dummy_update = type("obj", (object,), {"effective_chat": type("chat", (), {"id": int(chat_id)})})()
+        await top_command(dummy_update, None)
+        await graph_command(dummy_update, None)
 
+# Основной запуск
 async def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -158,7 +183,5 @@ async def main():
     print("Бот запущен...")
     await app.run_polling()
 
-if __name__ == '__main__':
-    import nest_asyncio
-    nest_asyncio.apply()
-    asyncio.get_event_loop().run_until_complete(main())
+if __name__ == "__main__":
+    asyncio.run(main())
