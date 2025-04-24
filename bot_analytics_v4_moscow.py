@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import asyncio
@@ -10,7 +11,7 @@ from bot_utils import get_top_users, escape_markdown
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 def save_chat_id(chat_id):
     with open("chat_id.txt", "w") as f:
