@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TOKEN = "8164071818:AAFCBZTKBXcCbxLdmN1uyjRT26X_w4abjVY"
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Привет! Я бот-аналитик. Используй /top, чтобы увидеть статистику.")
