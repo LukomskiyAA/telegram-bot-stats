@@ -1,15 +1,8 @@
-{
-  "meta": {
-    "last_weekly_reset": "2025-04-23"
+[
+  {
+    "user_id": 123456789,
+    "username": "someuser",
+    "message_count": 42
   },
-  "6175249592": {
-    "username": "lukomskiy_aa",
-    "messages": 71,
-    "weekly_messages": 71
-  },
-  "509596928": {
-    "username": "dart_weider",
-    "messages": 49,
-    "weekly_messages": 49
-  }
-}
+  ...
+]
