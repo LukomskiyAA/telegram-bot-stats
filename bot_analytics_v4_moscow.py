@@ -1,49 +1,49 @@
 import logging
-import re
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from bot_utils import get_top_users  # Предполагается, что у тебя есть этот модуль
+from datetime import datetime
+from bot_utils import get_top_users
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-def escape_md(text: str) -> str:
-    return re.sub(r'(?<!@)([_*\[\]()~`>#+\-=|{}.!])', r'\\\1', text)
+TOKEN = "YOUR_BOT_TOKEN_HERE"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Бот запущен и работает!")
+    await update.message.reply_text("Привет! Я бот-аналитик. Используй /top, чтобы увидеть статистику.")
+
+def escape_markdown(text: str) -> str:
+    escape_chars = r"*_[]()~`>#+-=|{}.!"
+    return "".join(f"\{char}" if char in escape_chars else char for char in text)
 
 async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    top_users = get_top_users(chat_id)
-
-    if not top_users:
-        await update.message.reply_text("Нет данных для отображения.")
-        return
-
-    lines = ["🏆 *Топ 10 самых активных за неделю:*"]
-    for i, (username, count) in enumerate(top_users, start=1):
-        name = f"@{username}" if username else "Без ника"
-        lines.append(f"{i}. {escape_md(name)} — {count} сообщений")
-
+    top_users = get_top_users()
+    lines = ["🏆 *Топ пользователей по активности:*"]
+    for i, (user, count) in enumerate(top_users, start=1):
+        username = escape_markdown(user.replace('.', '\.').replace('_', '\_'))
+        lines.append(f"{i}) @{username} — {count}")
     await update.message.reply_text("\n".join(lines), parse_mode="MarkdownV2")
 
 async def main():
-    application = ApplicationBuilder().token("YOUR_BOT_TOKEN").build()
+    application = ApplicationBuilder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("top", top_command))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: print("Планировщик активен"), "interval", minutes=10)
+    scheduler.add_job(lambda: print("⏰ Scheduler task executed."), 'interval', minutes=10)
     scheduler.start()
 
     logger.info("Бот запущен...")
     await application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import nest_asyncio
+    nest_asyncio.apply()
+
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
