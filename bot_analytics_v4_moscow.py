@@ -1,4 +1,3 @@
-
 import json
 import logging
 import asyncio
@@ -33,11 +32,11 @@ async def top_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_chat_id(update.effective_chat.id)
     try:
         top_users = get_top_users()
-        message = "*Топ пользователей по сообщениям:*
-"
+        message = "*Топ пользователей по сообщениям:*"
+
         for i, user_data in enumerate(top_users, start=1):
             username = escape_markdown(user_data.get("username", "Без ника"))
-            message += f"{i}. [{username}](tg://user?id={user_data['user_id']}) — `{user_data['message_count']}` сообщений\n"
+            message += f"\n{i}. [{username}](tg://user?id={user_data['user_id']}) — `{user_data['message_count']}` сообщений"
         await update.message.reply_text(message, parse_mode="MarkdownV2")
     except Exception as e:
         logger.exception("Ошибка в /top")
@@ -57,12 +56,14 @@ async def stat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def motohelp_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_chat_id(update.effective_chat.id)
-    await update.message.reply_text("🛵 Справка по использованию:
-/start — запуск
-/top — топ пользователей
-/graph — график
-/stat — сводка
-/motohelp — помощь")
+    await update.message.reply_text(
+        "🛵 Справка по использованию:\n"
+        "/start — запуск\n"
+        "/top — топ пользователей\n"
+        "/graph — график\n"
+        "/stat — сводка\n"
+        "/motohelp — помощь"
+    )
 
 async def weekly_summary():
     chat_id = load_chat_id()
@@ -71,11 +72,11 @@ async def weekly_summary():
 
     try:
         top_users = get_top_users()
-        message = "*Топ пользователей по сообщениям за неделю:*
-"
+        message = "*Топ пользователей по сообщениям за неделю:*"
+
         for i, user_data in enumerate(top_users, start=1):
             username = escape_markdown(user_data.get("username", "Без ника"))
-            message += f"{i}. [{username}](tg://user?id={user_data['user_id']}) — `{user_data['message_count']}` сообщений\n"
+            message += f"\n{i}. [{username}](tg://user?id={user_data['user_id']}) — `{user_data['message_count']}` сообщений"
 
         await application.bot.send_message(chat_id=chat_id, text=message, parse_mode="MarkdownV2")
 
