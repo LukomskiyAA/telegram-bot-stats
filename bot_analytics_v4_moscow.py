@@ -47,3 +47,5 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
+async def graph_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("GRAPH команда работает!")
